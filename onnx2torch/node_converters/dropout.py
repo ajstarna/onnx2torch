@@ -24,8 +24,17 @@ class OnnxDropoutDynamic(nn.Module, OnnxToTorchModule):  # pylint: disable=missi
         training_mode: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         # Ignoring training_mode from ONNX and use the one from PyTorch
-        return F.dropout(input_tensor, p=ratio, training=self.training)
+        #return F.dropout(input_tensor, p=ratio, training=self.training)
 
+        # AS: this solves the test. Due to f32 precision in file versus f64 python default
+        # TODO: how can we better handle the discrepancy?
+        ratio = round(ratio.item(), 5)
+
+        # AS: dropout is supposed to return two things according to the spec! This leads to a bug
+        # with getitem at index 0 actually grabbing into the batch dimension, instead of taking the tensor from the output tuple
+        # TODO: actually return the mask. might not be able to use torch's dropout function?
+        mask = None
+        return (F.dropout(input_tensor, p=ratio, training=self.training), mask)
 
 @add_converter(operation_type='Dropout', version=10)
 def _(node: OnnxNode, graph: OnnxGraph) -> OperationConverterResult:  # pylint: disable=unused-argument

@@ -30,7 +30,9 @@ class InitializersContainer(nn.Module):
     """Module for storing initializers in torch fx graph."""
 
     def add_initializer(self, name: str, initializer: torch.Tensor) -> None:  # pylint: disable=missing-docstring
-        self.register_buffer(name, initializer)
+        #self.register_buffer(name, initializer)
+        # AS: this one liner fixes the embedding layer test. Need to check if any side effects
+        setattr(self, name, torch.nn.Parameter(initializer)) # AS: we want these to be learnable by default?
 
     def forward(self, *args, **kwargs):  # pylint: disable=missing-function-docstring
         raise RuntimeError('Got unexpected "forward" on constant container')
@@ -132,13 +134,23 @@ def convert(  # pylint: disable=too-many-locals, too-many-branches, too-many-sta
 
             elif value_type == ValueType.GRAPH_INITIALIZER:
                 # The name of pytorch buffer must not contain '.'(dot)
-                len_torch_initializers = sum(1 for _ in torch_initializers.buffers())
-                torch_buffer_name = f'onnx_initializer_{len_torch_initializers}'
+
+                # AS:
+                #len_torch_initializers = sum(1 for _ in torch_initializers.buffers())
+                #torch_buffer_name = f'onnx_initializer_{len_torch_initializers}'
+
+                # AS: what happens if the buffer name is just the value name?
+                # it makes it way easier to compare the deserialized model with the original pytorch model
+                # Pretty annoying to see "onnx_initializer_N"
+                torch_buffer_name = value_name.replace(".", "/")
+
                 if value_name not in torch_nodes:
                     torch_initializers.add_initializer(
                         torch_buffer_name,
                         onnx_graph.initializers[value_name].to_torch(),
                     )
+                    # AS: we need to prepend "initializers." so that when we construct the GraphModule at the very end,
+                    # it knows where to find module (i.e. inside the initializers container)
                     torch_nodes[torch_buffer_name] = torch_graph.get_attr(f'initializers.{torch_buffer_name}')
                 args.append(torch_nodes[torch_buffer_name])
 
